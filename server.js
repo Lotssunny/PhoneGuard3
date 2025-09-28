@@ -1,16 +1,36 @@
 import express from "express";
-import mongoose from "mongoose";
-import connectDB from "./dbConfig.js";
 import dotenv from "dotenv";
 import cors from "cors";
+import connectDB from "./dbConfig.js";
+import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
 
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+// ✅ CORS setup
+const allowedOrigins = [
+  process.env.FRONTEND_URL, // frontend URL from .env
+];
+
+app.use(cors({
+  origin: function(origin, callback) {
+    if (!origin) return callback(null, true); // mobile apps / Postman
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = `The CORS policy does not allow access from: ${origin}`;
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+}));
+
 app.use(express.json());
 
-// ✅ Device schema
+// --- Schemas ---
+
+// Device schema
 const deviceSchema = new mongoose.Schema({
   id: String,
   userId: String,
@@ -25,24 +45,21 @@ const deviceSchema = new mongoose.Schema({
 });
 const Device = mongoose.model("Device", deviceSchema);
 
-// ✅ User schema
+// User schema
 const userSchema = new mongoose.Schema({
   email: String,
-  password: String, // NOTE: hash in production
+  password: String, // hashed password
   name: String,
 });
 const User = mongoose.model("User", userSchema);
 
-// --- API Routes ---
+// --- Routes ---
 
-// Register a device
+// Register device
 app.post("/api/device/register", async (req, res) => {
   try {
     const { userId, deviceName, imei, notes, status, createdAt } = req.body;
-
-    if (!deviceName || !imei) {
-      return res.status(400).json({ error: "Device name and IMEI are required" });
-    }
+    if (!deviceName || !imei) return res.status(400).json({ error: "Device name and IMEI required" });
 
     const deviceData = {
       userId: userId || "tempUserId",
@@ -66,8 +83,7 @@ app.post("/api/device/register", async (req, res) => {
 app.get("/api/devices", async (req, res) => {
   try {
     const { userId } = req.query;
-    let query = {};
-    if (userId) query.userId = userId;
+    const query = userId ? { userId } : {};
     const devices = await Device.find(query).lean();
     res.json(devices);
   } catch (error) {
@@ -95,7 +111,9 @@ app.post("/api/users/register", async (req, res) => {
     const exists = await User.findOne({ email });
     if (exists) return res.status(409).json({ error: "User already exists" });
 
-    const user = new User({ email, password, name });
+    // Hash password before saving
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({ email, password: hashedPassword, name });
     await user.save();
     res.status(201).json({ message: "User registered" });
   } catch (error) {
@@ -107,17 +125,22 @@ app.post("/api/users/register", async (req, res) => {
 app.post("/api/users/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email, password });
+    const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ error: "Invalid credentials" });
+
     res.json({ email: user.email, name: user.name });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// ✅ Start server
+// --- Start server ---
 connectDB().then(() => {
-  app.listen(process.env.PORT || 3000, "0.0.0.0", () =>
-    console.log(`🚀 Server running on http://192.168.138.247:${process.env.PORT || 3000}`)
-  );
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+  });
 });
