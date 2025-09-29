@@ -9,19 +9,18 @@ dotenv.config();
 
 const app = express();
 
-// ✅ CORS setup
-const allowedOrigins = [
-  process.env.FRONTEND_URL, // frontend URL from .env
-];
+// ✅ CORS setup (multiple allowed origins)
+const allowedOrigins = process.env.FRONTEND_URL.split(",");
 
 app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true); // mobile apps / Postman
-    if (allowedOrigins.indexOf(origin) === -1) {
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true); // mobile apps / Postman (no origin)
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
       const msg = `The CORS policy does not allow access from: ${origin}`;
       return callback(new Error(msg), false);
     }
-    return callback(null, true);
   },
   credentials: true,
 }));
